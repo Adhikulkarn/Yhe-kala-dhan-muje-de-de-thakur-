@@ -28,10 +28,14 @@ export default function AMLGraph() {
     const width = window.innerWidth;
     const height = window.innerHeight;
 
+    /* MAP FINAL RISK */
+
     const riskMap = {};
     (finalRisk?.wallets || []).forEach(w => {
       riskMap[w.id] = w;
     });
+
+    /* MAP BASE RISK */
 
     const riskScoresMap = {};
     (riskScores?.wallets || []).forEach(w => {
@@ -54,7 +58,7 @@ export default function AMLGraph() {
         .on("zoom", e => container.attr("transform", e.transform))
     );
 
-    /* ARROW */
+    /* ARROW MARKER */
 
     const defs = svg.append("defs");
 
@@ -70,7 +74,7 @@ export default function AMLGraph() {
       .attr("d", "M0,-5L10,0L0,5")
       .attr("fill", "#ef4444");
 
-    /* DEGREE */
+    /* NODE DEGREE */
 
     const degree = {};
 
@@ -79,11 +83,13 @@ export default function AMLGraph() {
       degree[e.target] = (degree[e.target] || 0) + 1;
     });
 
+    const extent = d3.extent(Object.values(degree));
+
     const radius = d3.scaleLinear()
-      .domain(d3.extent(Object.values(degree)))
+      .domain(extent[0] === extent[1] ? [0, extent[1] || 1] : extent)
       .range([8, 26]);
 
-    /* FORCE */
+    /* FORCE SIMULATION */
 
     const sim = d3.forceSimulation(graph.nodes)
       .force("link", d3.forceLink(graph.edges).id(d => d.id).distance(140))
@@ -126,7 +132,7 @@ export default function AMLGraph() {
       )
       .attr("marker-end", d => d.pattern ? "url(#arrow)" : null);
 
-    /* ANIMATION */
+    /* DASH ANIMATION */
 
     let dash = 0;
 
@@ -145,7 +151,10 @@ export default function AMLGraph() {
       .attr("r", d => radius(degree[d.id] || 1))
       .attr("fill", d => {
 
-        const r = riskMap[d.id]?.final_risk ?? 0;
+        const r =
+          riskMap[d.id]?.final_risk ??
+          riskScoresMap[d.id]?.base_risk ??
+          0;
 
         if (r >= 0.85) return "#dc2626";
         if (r >= 0.6) return "#f97316";
@@ -159,7 +168,9 @@ export default function AMLGraph() {
         e.stopPropagation();
 
         const info = riskMap[d.id];
-        const base = riskScoresMap[d.id]?.base_risk;
+        const base = riskScoresMap[d.id]?.base_risk ?? 0;
+
+        const finalRiskValue = info?.final_risk ?? base ?? 0;
 
         tooltip
           .style("opacity", 1)
@@ -174,11 +185,11 @@ export default function AMLGraph() {
             <div style="margin-bottom:4px;">
               <span style="color:#000;">Final Risk:</span>
               <span style="font-weight:600;color:${
-                info?.final_risk >= 0.85 ? '#ef4444'
-                : info?.final_risk >= 0.6 ? '#f97316'
+                finalRiskValue >= 0.85 ? '#ef4444'
+                : finalRiskValue >= 0.6 ? '#f97316'
                 : '#16a34a'
               };">
-                ${(info?.final_risk * 100).toFixed(1)}%
+                ${(finalRiskValue * 100).toFixed(1)}%
               </span>
             </div>
 
@@ -210,9 +221,7 @@ export default function AMLGraph() {
     /* CLICK OUTSIDE CLOSES TOOLTIP */
 
     d3.select("body").on("click", () => {
-
       tooltip.style("opacity", 0);
-
     });
 
     /* SIMULATION */

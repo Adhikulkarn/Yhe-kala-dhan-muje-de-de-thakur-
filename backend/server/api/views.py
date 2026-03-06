@@ -8,14 +8,8 @@ from rest_framework.response import Response
 
 from core.pipeline import run_full_analysis
 
-# -------------------------------------------------
-# Logging
-# -------------------------------------------------
 logger = logging.getLogger(__name__)
 
-# ----------------------------------------------------------------------------
-# In-memory session cache this is done for being on the safe of the hackathon
-# ----------------------------------------------------------------------------
 ANALYSIS_CACHE = {}
 
 
@@ -28,33 +22,23 @@ def health(request):
 
 
 # -------------------------------------------------
-# CSV Upload (Phase 8.1 Hardened)
+# CSV Upload
 # -------------------------------------------------
 @api_view(["POST"])
 def upload_csv(request):
     file = request.FILES.get("file")
 
     if not file:
-        return Response(
-            {"error": "CSV file required"},
-            status=400
-        )
+        return Response({"error": "CSV file required"}, status=400)
 
     MAX_FILE_SIZE_MB = 10
 
     if not file.name.lower().endswith(".csv"):
-        return Response(
-            {"error": "Only CSV files are supported"},
-            status=400
-        )
+        return Response({"error": "Only CSV files are supported"}, status=400)
 
     if file.size > MAX_FILE_SIZE_MB * 1024 * 1024:
-        return Response(
-            {"error": "CSV file too large (max 10MB)"},
-            status=400
-        )
+        return Response({"error": "CSV file too large (max 10MB)"}, status=400)
 
-    # Clean up old temp file if exists
     old_csv = ANALYSIS_CACHE.get("csv_path")
     if old_csv and os.path.exists(old_csv):
         try:
@@ -64,66 +48,69 @@ def upload_csv(request):
 
     try:
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
+
         for chunk in file.chunks():
             tmp.write(chunk)
+
         tmp.close()
 
     except Exception as e:
         logger.exception("CSV save failed")
+
         return Response(
-            {
-                "error": "Failed to save uploaded CSV",
-                "details": str(e)
-            },
+            {"error": "Failed to save uploaded CSV", "details": str(e)},
             status=500
         )
 
     ANALYSIS_CACHE.clear()
     ANALYSIS_CACHE["csv_path"] = tmp.name
 
-    logger.info("CSV uploaded: %s", file.name)
+    logger.info("CSV uploaded")
 
     return Response({"message": "CSV uploaded successfully"})
 
 
 # -------------------------------------------------
-# Analysis Trigger (Phase 5.2 + Phase 8 Guardrails)
+# Run Analysis
 # -------------------------------------------------
 @api_view(["POST"])
 def analyze(request):
+
     csv_path = ANALYSIS_CACHE.get("csv_path")
 
     if not csv_path or not os.path.exists(csv_path):
-        logger.warning("Analyze called without CSV")
         return Response(
             {"error": "No CSV uploaded. Upload CSV before analysis."},
             status=400
         )
 
     try:
+
         start = time.time()
+
         mode = request.data.get("mode", "crypto")
+
         results = run_full_analysis(csv_path, mode)
+
         duration = time.time() - start
 
         if duration > 5:
-            logger.error("Analysis timeout: %.2fs", duration)
             return Response(
                 {"error": "Analysis exceeded time limit"},
                 status=500
             )
 
     except Exception as e:
+
         logger.exception("Analysis failed")
+
         return Response(
-            {
-                "error": "Analysis failed",
-                "details": str(e)
-            },
+            {"error": "Analysis failed", "details": str(e)},
             status=500
         )
 
     ANALYSIS_CACHE["results"] = results
+
     logger.info("Analysis completed in %.2fs", duration)
 
     return Response({"message": "Analysis completed"})
@@ -134,6 +121,7 @@ def analyze(request):
 # -------------------------------------------------
 @api_view(["GET"])
 def get_graph(request):
+
     results = ANALYSIS_CACHE.get("results")
 
     if not results:
@@ -152,14 +140,18 @@ def get_graph(request):
     }
 
     nodes = []
+
     for node in G.nodes():
+
+        node_str = str(node)
+
         risk_info = base_risks.get(node, {})
         risk = risk_info.get("base_risk", 0.0)
 
-        is_wallet = node.startswith("0x")
+        is_wallet = node_str.startswith("0x")
 
         nodes.append({
-            "id": node,
+            "id": node_str,
             "risk": risk,
             "is_risky": risk >= 0.5,
             "is_involved": node in involved_wallets,
@@ -168,11 +160,14 @@ def get_graph(request):
         })
 
     edges = []
+
     for u, v, data in G.edges(data=True):
+
         p = patterns.get(u, {})
+
         edges.append({
-            "source": u,
-            "target": v,
+            "source": str(u),
+            "target": str(v),
             "amount": data.get("amount", 0.0),
             "is_suspicious": p.get("fan_out", False) or p.get("peeling_chain", False),
             "pattern": (
@@ -186,10 +181,11 @@ def get_graph(request):
 
 
 # -------------------------------------------------
-# Risk Scores Endpoint (Phase 5.4)
+# Base Risk Scores
 # -------------------------------------------------
 @api_view(["GET"])
 def get_risk_scores(request):
+
     results = ANALYSIS_CACHE.get("results")
 
     if not results:
@@ -201,10 +197,12 @@ def get_risk_scores(request):
     base_risks = results.get("base_risks", {})
 
     wallets = []
-    for wallet, risk_info in base_risks.items():
-        base = risk_info.get("base_risk", 0.0)
 
-        wallet_str = str(wallet)  # ensure compatibility for numeric IDs
+    for wallet, risk_info in base_risks.items():
+
+        wallet_str = str(wallet)
+
+        base = risk_info.get("base_risk", 0.0)
 
         wallets.append({
             "id": wallet_str,
@@ -222,10 +220,11 @@ def get_risk_scores(request):
 
 
 # -------------------------------------------------
-# Final Risk Fusion (Phase 5.5 Optional)
+# Final Risk Fusion
 # -------------------------------------------------
 @api_view(["GET"])
 def get_final_risk(request):
+
     results = ANALYSIS_CACHE.get("results")
 
     if not results:
@@ -238,16 +237,20 @@ def get_final_risk(request):
     gnn_risks = results.get("gnn_risks") or {}
 
     ALPHA = 0.6
+
     wallets = []
 
     for wallet, info in base_risks.items():
+
+        wallet_str = str(wallet)
+
         base = info.get("base_risk", 0.0)
         gnn = gnn_risks.get(wallet, base)
 
         final = round(ALPHA * base + (1 - ALPHA) * gnn, 3)
 
         wallets.append({
-            "id": wallet,
+            "id": wallet_str,
             "base_risk": base,
             "gnn_risk": round(gnn, 3),
             "final_risk": final,

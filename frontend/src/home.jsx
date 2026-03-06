@@ -17,6 +17,9 @@ export default function GraphGuardHome() {
   const [showGraph, setShowGraph] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
 
+  /* NEW: AML MODE STATE */
+  const [amlMode, setAmlMode] = useState("crypto");
+
   useEffect(() => {
 
     const csvInput = csvInputRef.current;
@@ -111,6 +114,12 @@ export default function GraphGuardHome() {
       const res = await fetch(`${BASE_URL}/analyze/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+
+        /* NEW: SEND AML MODE */
+        body: JSON.stringify({
+          mode: amlMode
+        }),
+
       });
 
       if (!res.ok) throw new Error();
@@ -130,7 +139,6 @@ export default function GraphGuardHome() {
   return (
   <div className="min-h-screen bg-gradient-to-b from-white via-blue-50 to-gray-100 text-gray-800 relative overflow-hidden">
 
-    {/* Background Glow */}
     <div className="absolute top-[-200px] left-1/2 -translate-x-1/2 w-[800px] h-[800px] bg-blue-200 opacity-20 blur-[180px] rounded-full"></div>
 
     {showPopup && (
@@ -164,7 +172,6 @@ export default function GraphGuardHome() {
 
         <div className="max-w-4xl w-full text-center animate-fadein">
 
-          {/* Title */}
           <h1 className="text-5xl md:text-6xl font-bold text-gray-900 leading-tight">
             Yeh Kala Dhan
             <span className="text-blue-600 block">
@@ -172,7 +179,6 @@ export default function GraphGuardHome() {
             </span>
           </h1>
 
-          {/* Subtitle */}
           <p className="text-gray-500 mt-6 text-lg max-w-2xl mx-auto">
             The “Smurfing” Hunter — Detecting Money Laundering Circles in
             Blockchain and Banking Transaction Graphs using Hybrid Graph Intelligence.
@@ -180,7 +186,6 @@ export default function GraphGuardHome() {
 
           {!showUploader && (
             <>
-              {/* Buttons */}
               <div className="mt-12 flex justify-center gap-6 flex-wrap">
 
                 <button
@@ -199,7 +204,6 @@ export default function GraphGuardHome() {
 
               </div>
 
-              {/* Stats Cards */}
               <div className="mt-14 grid grid-cols-1 md:grid-cols-3 gap-6">
 
                 <div className="bg-white border border-gray-200 shadow-sm rounded-xl p-6 text-sm text-gray-600 hover:shadow-lg transition hover:-translate-y-1">
@@ -229,6 +233,39 @@ export default function GraphGuardHome() {
 
           {showUploader && (
             <div className="mt-12 max-w-xl mx-auto bg-white border border-gray-200 shadow-lg rounded-2xl p-8 animate-slideup">
+
+              {/* AML MODE SELECTOR */}
+              <div className="mb-6 text-left">
+
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Select AML Engine
+                </label>
+
+                <div className="flex gap-6">
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      value="crypto"
+                      checked={amlMode === "crypto"}
+                      onChange={() => setAmlMode("crypto")}
+                    />
+                    Crypto AML
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      value="banking"
+                      checked={amlMode === "banking"}
+                      onChange={() => setAmlMode("banking")}
+                    />
+                    Banking AML
+                  </label>
+
+                </div>
+
+              </div>
 
               <input
                 ref={csvInputRef}
