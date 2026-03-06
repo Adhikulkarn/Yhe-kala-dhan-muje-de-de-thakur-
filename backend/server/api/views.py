@@ -102,7 +102,8 @@ def analyze(request):
 
     try:
         start = time.time()
-        results = run_full_analysis(csv_path)
+        mode = request.data.get("mode", "crypto")
+        results = run_full_analysis(csv_path, mode)
         duration = time.time() - start
 
         if duration > 5:
@@ -203,15 +204,17 @@ def get_risk_scores(request):
     for wallet, risk_info in base_risks.items():
         base = risk_info.get("base_risk", 0.0)
 
+        wallet_str = str(wallet)  # ensure compatibility for numeric IDs
+
         wallets.append({
-            "id": wallet,
+            "id": wallet_str,
             "base_risk": base,
             "structural_risk": risk_info.get("structural_risk", 0.0),
             "flow_risk": risk_info.get("flow_risk", 0.0),
             "temporal_risk": risk_info.get("temporal_risk", 0.0),
             "proximity_risk": risk_info.get("proximity_risk", 0.0),
             "is_risky": base >= 0.5,
-            "entity_type": "wallet" if wallet.startswith("0x") else "service",
+            "entity_type": "wallet" if wallet_str.startswith("0x") else "service",
             "reasons": risk_info.get("reasons", []),
         })
 
