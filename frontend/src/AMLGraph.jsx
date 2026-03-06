@@ -64,7 +64,7 @@ export default function AMLGraph() {
       .select(svgRef.current)
       .attr("width", width)
       .attr("height", height)
-      .style("background", "#0f172a");
+     .style("background", "#f8fafc");
 
     svg.selectAll("*").remove();
 
@@ -228,12 +228,12 @@ export default function AMLGraph() {
   };
 
   return (
-    <div className="fixed inset-0 w-full h-full bg-slate-950 overflow-hidden">
+   <div className="fixed inset-0 w-full h-full bg-white overflow-hidden">
       {/* Animated grid background */}
       <div className="absolute inset-0 grid-background-graph" />
       
       {/* Gradient overlay */}
-      <div className="absolute inset-0 bg-linear-to-b from-blue-950/40 via-slate-950/60 to-slate-950/80 pointer-events-none" />
+      <div className="absolute inset-0 bg-gradient-to-b from-blue-50/40 via-white to-sky-50/40 pointer-events-none" />
       
       {/* Radial glow effects */}
       <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl animate-pulse-slow pointer-events-none" />
