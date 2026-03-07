@@ -2,6 +2,7 @@ import os
 import tempfile
 import time
 import logging
+import traceback
 
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -26,6 +27,7 @@ def health(request):
 # -------------------------------------------------
 @api_view(["POST"])
 def upload_csv(request):
+
     file = request.FILES.get("file")
 
     if not file:
@@ -40,13 +42,15 @@ def upload_csv(request):
         return Response({"error": "CSV file too large (max 10MB)"}, status=400)
 
     old_csv = ANALYSIS_CACHE.get("csv_path")
+
     if old_csv and os.path.exists(old_csv):
         try:
             os.remove(old_csv)
         except Exception:
-            logger.warning("Failed to delete old CSV temp file")
+            logger.warning("Failed to delete old CSV")
 
     try:
+
         tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
 
         for chunk in file.chunks():
@@ -55,6 +59,7 @@ def upload_csv(request):
         tmp.close()
 
     except Exception as e:
+
         logger.exception("CSV save failed")
 
         return Response(
@@ -65,9 +70,26 @@ def upload_csv(request):
     ANALYSIS_CACHE.clear()
     ANALYSIS_CACHE["csv_path"] = tmp.name
 
-    logger.info("CSV uploaded")
+    logger.info("CSV uploaded successfully")
 
     return Response({"message": "CSV uploaded successfully"})
+
+
+# -------------------------------------------------
+# AML Mode Detection
+# -------------------------------------------------
+def detect_aml_mode(csv_path):
+
+    with open(csv_path, "r") as f:
+        header = f.readline().lower()
+
+    if "src" in header and "dst" in header:
+        return "banking"
+
+    if "source_wallet_id" in header:
+        return "crypto"
+
+    return "crypto"
 
 
 # -------------------------------------------------
@@ -88,31 +110,18 @@ def analyze(request):
 
         start = time.time()
 
-        # -------------------------------
-        # Determine AML mode
-        # -------------------------------
         mode = request.data.get("mode")
 
         if not mode:
-            # Auto detect from CSV header
-            with open(csv_path, "r") as f:
-                header = f.readline().lower()
+            mode = detect_aml_mode(csv_path)
 
-            if "src" in header and "dst" in header:
-                mode = "banking"
-            else:
-                mode = "crypto"
+        logger.info(f"AML MODE SELECTED: {mode}")
 
-        logger.info(f"AML MODE: {mode}")
-
-        # -------------------------------
-        # Run AML pipeline
-        # -------------------------------
         results = run_full_analysis(csv_path, mode)
 
         duration = time.time() - start
 
-        if duration > 5:
+        if duration > 10:
             return Response(
                 {"error": "Analysis exceeded time limit"},
                 status=500
@@ -120,21 +129,27 @@ def analyze(request):
 
     except Exception as e:
 
+        traceback.print_exc()
+
         logger.exception("Analysis failed")
 
         return Response(
-            {"error": "Analysis failed", "details": str(e)},
+            {
+                "error": "Analysis failed",
+                "details": str(e)
+            },
             status=500
         )
 
     ANALYSIS_CACHE["results"] = results
 
-    logger.info("Analysis completed in %.2fs", duration)
+    logger.info(f"Analysis completed in {duration:.2f}s")
 
     return Response({
         "message": "Analysis completed",
         "mode": mode
     })
+
 
 # -------------------------------------------------
 # Graph Endpoint
@@ -168,14 +183,19 @@ def get_graph(request):
         risk_info = base_risks.get(node, {})
         risk = risk_info.get("base_risk", 0.0)
 
-        is_wallet = node_str.startswith("0x")
+        if node_str.startswith("0x"):
+            entity_type = "wallet"
+        elif node_str.isdigit():
+            entity_type = "bank_account"
+        else:
+            entity_type = "service"
 
         nodes.append({
             "id": node_str,
             "risk": risk,
             "is_risky": risk >= 0.5,
             "is_involved": node in involved_wallets,
-            "entity_type": "wallet" if is_wallet else "service",
+            "entity_type": entity_type,
             "reasons": risk_info.get("reasons", []),
         })
 
@@ -221,7 +241,6 @@ def get_risk_scores(request):
     for wallet, risk_info in base_risks.items():
 
         wallet_str = str(wallet)
-
         base = risk_info.get("base_risk", 0.0)
 
         wallets.append({
@@ -232,7 +251,7 @@ def get_risk_scores(request):
             "temporal_risk": risk_info.get("temporal_risk", 0.0),
             "proximity_risk": risk_info.get("proximity_risk", 0.0),
             "is_risky": base >= 0.5,
-            "entity_type": "wallet" if wallet_str.startswith("0x") else "service",
+            "entity_type": "wallet" if wallet_str.startswith("0x") else "bank_account",
             "reasons": risk_info.get("reasons", []),
         })
 
