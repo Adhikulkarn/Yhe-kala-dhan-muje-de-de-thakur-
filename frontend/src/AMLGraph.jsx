@@ -28,14 +28,10 @@ export default function AMLGraph() {
     const width = window.innerWidth;
     const height = window.innerHeight;
 
-    /* MAP FINAL RISK */
-
     const riskMap = {};
     (finalRisk?.wallets || []).forEach(w => {
       riskMap[w.id] = w;
     });
-
-    /* MAP BASE RISK */
 
     const riskScoresMap = {};
     (riskScores?.wallets || []).forEach(w => {
@@ -72,7 +68,7 @@ export default function AMLGraph() {
       .attr("orient", "auto")
       .append("path")
       .attr("d", "M0,-5L10,0L0,5")
-      .attr("fill", "#ef4444");
+      .attr("fill", "#64748b");
 
     /* NODE DEGREE */
 
@@ -118,19 +114,29 @@ export default function AMLGraph() {
       .data(graph.edges)
       .enter()
       .append("line")
-      .attr("stroke", d =>
-        d.pattern === "smurfing" ? "#ef4444" :
-        d.pattern === "peeling" ? "#a855f7" :
-        "#64748b"
-      )
-      .attr("stroke-width", d =>
-        d.pattern === "smurfing" ? 4 :
-        d.pattern === "peeling" ? 3 : 1.2
-      )
+      .attr("stroke", d => {
+
+        if (d.pattern === "smurfing") return "#ef4444";
+        if (d.pattern === "peeling") return "#a855f7";
+        if (d.is_suspicious) return "#f97316";
+
+        return "#64748b";
+
+      })
+      .attr("stroke-width", d => {
+
+        if (d.pattern === "smurfing") return 4;
+        if (d.pattern === "peeling") return 3;
+        if (d.is_suspicious) return 3;
+
+        return 1.2;
+
+      })
       .attr("stroke-dasharray", d =>
         d.pattern === "peeling" ? "6 6" : "4 6"
       )
-      .attr("marker-end", d => d.pattern ? "url(#arrow)" : null);
+      /* ALWAYS DRAW ARROW */
+      .attr("marker-end", "url(#arrow)");
 
     /* DASH ANIMATION */
 
@@ -183,19 +189,15 @@ export default function AMLGraph() {
             </div>
 
             <div style="margin-bottom:4px;">
-              <span style="color:#000;">Final Risk:</span>
-              <span style="font-weight:600;color:${
-                finalRiskValue >= 0.85 ? '#ef4444'
-                : finalRiskValue >= 0.6 ? '#f97316'
-                : '#16a34a'
-              };">
+              <span>Final Risk:</span>
+              <span style="font-weight:600;">
                 ${(finalRiskValue * 100).toFixed(1)}%
               </span>
             </div>
 
             <div style="margin-bottom:8px;">
-              <span style="color:#000;">Base Risk:</span>
-              <span style="font-weight:600;color:#000;">
+              <span>Base Risk:</span>
+              <span style="font-weight:600;">
                 ${(base * 100).toFixed(1)}%
               </span>
             </div>
@@ -203,7 +205,7 @@ export default function AMLGraph() {
             ${
               info?.reasons?.length
                 ? `<div style="border-top:1px solid #ccc;padding-top:8px;margin-top:8px;">
-                    ${info.reasons.map(r => `<div style="margin:4px 0;color:#000;">• ${r}</div>`).join("")}
+                    ${info.reasons.map(r => `<div>• ${r}</div>`).join("")}
                   </div>`
                 : ""
             }
@@ -218,13 +220,9 @@ export default function AMLGraph() {
           .on("end", e => !e.active && sim.alphaTarget(0))
       );
 
-    /* CLICK OUTSIDE CLOSES TOOLTIP */
-
     d3.select("body").on("click", () => {
       tooltip.style("opacity", 0);
     });
-
-    /* SIMULATION */
 
     sim.on("tick", () => {
 
@@ -245,9 +243,7 @@ export default function AMLGraph() {
   return (
 
     <div className="fixed inset-0 w-full h-full bg-white overflow-hidden">
-
       <svg ref={svgRef} className="relative w-full h-full" />
-
     </div>
 
   );

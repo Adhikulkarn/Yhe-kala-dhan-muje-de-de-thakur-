@@ -88,8 +88,26 @@ def analyze(request):
 
         start = time.time()
 
-        mode = request.data.get("mode", "crypto")
+        # -------------------------------
+        # Determine AML mode
+        # -------------------------------
+        mode = request.data.get("mode")
 
+        if not mode:
+            # Auto detect from CSV header
+            with open(csv_path, "r") as f:
+                header = f.readline().lower()
+
+            if "src" in header and "dst" in header:
+                mode = "banking"
+            else:
+                mode = "crypto"
+
+        logger.info(f"AML MODE: {mode}")
+
+        # -------------------------------
+        # Run AML pipeline
+        # -------------------------------
         results = run_full_analysis(csv_path, mode)
 
         duration = time.time() - start
@@ -113,8 +131,10 @@ def analyze(request):
 
     logger.info("Analysis completed in %.2fs", duration)
 
-    return Response({"message": "Analysis completed"})
-
+    return Response({
+        "message": "Analysis completed",
+        "mode": mode
+    })
 
 # -------------------------------------------------
 # Graph Endpoint
