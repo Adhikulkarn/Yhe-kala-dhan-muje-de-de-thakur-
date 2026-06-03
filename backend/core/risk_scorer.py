@@ -1,5 +1,8 @@
 import math
 import networkx as nx
+import logging
+
+logger = logging.getLogger(__name__)
 
 # -------------------------------------------------
 # AML Risk Component Thresholds
@@ -16,6 +19,13 @@ LOW_IMBALANCE_THRESHOLD = 0.2
 def safe(v, default=0.0):
     """
     Converts NaN / None / invalid values to safe defaults.
+    
+    Args:
+        v: Value to check
+        default: Fallback value if v is invalid
+        
+    Returns:
+        float: Safe numeric value
     """
     if v is None:
         return default
@@ -28,6 +38,16 @@ def safe(v, default=0.0):
 # Individual Risk Components
 # -------------------------------------------------
 def compute_structural_risk(node_feats):
+    """
+    Scores structural anomalies (fan-in/fan-out patterns).
+    
+    High risk if:
+    - Out-degree >= FAN_OUT_THRESHOLD (smurfing pattern)
+    - In-degree >= FAN_IN_THRESHOLD (aggregation pattern)
+    
+    Returns:
+        float: Risk score [0.0, 1.0]
+    """
     in_deg = safe(node_feats.get("in_degree"), 0)
     out_deg = safe(node_feats.get("out_degree"), 0)
 
@@ -40,6 +60,17 @@ def compute_structural_risk(node_feats):
 
 
 def compute_flow_risk(node_feats):
+    """
+    Scores flow imbalance (pass-through behavior).
+    
+    High risk if:
+    - Multiple incoming transactions
+    - At least one outgoing transaction  
+    - Low flow imbalance (in ≈ out)
+    
+    Returns:
+        float: Risk score [0.0, 1.0]
+    """
     incoming = safe(node_feats.get("in_degree"), 0)
     outgoing = safe(node_feats.get("out_degree"), 0)
     imbalance = safe(node_feats.get("flow_imbalance"), 1.0)
@@ -51,6 +82,16 @@ def compute_flow_risk(node_feats):
 
 
 def compute_temporal_risk(node_feats):
+    """
+    Scores temporal clustering (rapid transaction bursts).
+    
+    High risk if:
+    - Minimum transaction count met
+    - All transactions occur within short timespan (≤ 30% of dataset window)
+    
+    Returns:
+        float: Risk score [0.0, 1.0]
+    """
     tx_count = safe(node_feats.get("tx_count"), 0)
     time_span = safe(node_feats.get("active_time_span"), 1.0)
 
@@ -64,6 +105,22 @@ def compute_temporal_risk(node_feats):
 
 
 def compute_proximity_risk(G, suspicious_wallets, wallet, max_hops=3):
+    """
+    Scores proximity to known suspicious wallets in the network.
+    
+    Risk decreases with distance (hops) from suspicious nodes.
+    Direct connection (1 hop) = 1.0 risk
+    N hops away = 1 / (N + 1) risk
+    
+    Args:
+        G: Transaction graph
+        suspicious_wallets: Set of known suspicious wallet IDs
+        wallet: Wallet to score
+        max_hops: Maximum path length to consider
+        
+    Returns:
+        float: Risk score [0.0, 1.0]
+    """
     for s in suspicious_wallets:
         if wallet == s:
             return 1.0
@@ -87,12 +144,33 @@ def compute_base_risk(
     weights=(0.4, 0.3, 0.2, 0.1),
 ):
     """
-    AML-grade base risk computation.
-
-    RULES:
-    - Skip non-wallet entities
-    - No structural OR flow anomaly → base_risk = 0
-    - Never output NaN
+    AML-grade base risk computation with strict gates.
+    
+    Critical Rule: Hard gate on structural OR flow anomalies
+    - If neither structural nor flow risk exists, base_risk = 0
+    - Otherwise, compute weighted combination of all components
+    
+    Weights:
+    - Structural (0.4): Degree-based anomalies
+    - Flow (0.3): Transaction imbalance
+    - Temporal (0.2): Time clustering
+    - Proximity (0.1): Network distance to suspicious nodes
+    
+    Args:
+        G: Transaction graph
+        node_features: Node-level features
+        pattern_results: Pattern detection results
+        weights: Component weights (must sum to 1.0)
+        
+    Returns:
+        dict: {wallet: {
+            'base_risk': float [0.0, 1.0],
+            'structural_risk': float,
+            'flow_risk': float,
+            'temporal_risk': float,
+            'proximity_risk': float,
+            'reasons': [str]
+        }}
     """
 
     base_risks = {}
@@ -111,7 +189,7 @@ def compute_base_risk(
         structural = compute_structural_risk(feats)
         flow = compute_flow_risk(feats)
 
-        # 🚨 HARD GATE
+        # 🚨 HARD GATE: No anomaly detected = no risk
         if structural == 0.0 and flow == 0.0:
             base_risk = 0.0
             temporal = 0.0
