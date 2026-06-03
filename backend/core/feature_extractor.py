@@ -4,16 +4,22 @@ import numpy as np
 
 def extract_node_features(G: nx.DiGraph) -> dict:
     """
+    Extracts node-level features from transaction graph.
+    
+    Features extracted per node:
+    - in_degree: Count of incoming transactions
+    - out_degree: Count of outgoing transactions
+    - total_inflow: Sum of incoming amounts
+    - total_outflow: Sum of outgoing amounts
+    - flow_imbalance: |inflow - outflow| / (inflow + outflow)
+    - tx_count: Total transactions (in + out)
+    - active_time_span: Duration from first to last transaction (seconds)
+    
+    Args:
+        G: NetworkX directed graph from build_transaction_graph
+        
     Returns:
-        node_features[node] = {
-            in_degree,
-            out_degree,
-            total_inflow,
-            total_outflow,
-            flow_imbalance,
-            tx_count,
-            active_time_span
-        }
+        dict: {node: {feature_name: value}}
     """
     node_features = {}
 
@@ -35,6 +41,7 @@ def extract_node_features(G: nx.DiGraph) -> dict:
         else:
             active_time_span = 0.0
 
+        # Measure how balanced inflow vs outflow is (0 = balanced, 1 = imbalanced)
         flow_imbalance = abs(total_inflow - total_outflow) / (
             total_inflow + total_outflow + 1e-9
         )
@@ -54,12 +61,19 @@ def extract_node_features(G: nx.DiGraph) -> dict:
 
 def extract_edge_features(G: nx.DiGraph) -> dict:
     """
+    Extracts edge-level features from transaction graph.
+    
+    Features extracted per edge:
+    - amount: Transaction value
+    - time_delta: Seconds since previous outgoing transaction from source
+    - peeling_ratio: amount / max(incoming_amounts) to source
+      (ratio indicates value preservation in chain)
+    
+    Args:
+        G: NetworkX directed graph from build_transaction_graph
+        
     Returns:
-        edge_features[(src, dst)] = {
-            amount,
-            time_delta,
-            peeling_ratio
-        }
+        dict: {(source, dest): {feature_name: value}}
     """
     edge_features = {}
 
@@ -67,7 +81,7 @@ def extract_edge_features(G: nx.DiGraph) -> dict:
         amount = data["amount"]
         timestamp = data["timestamp"]
 
-        # Compute time delta from previous outgoing tx of u
+        # Time delta: how long since last outgoing transaction from this source
         prev_times = [
             d["timestamp"]
             for _, _, d in G.out_edges(u, data=True)
@@ -79,7 +93,9 @@ def extract_edge_features(G: nx.DiGraph) -> dict:
         else:
             time_delta = 0.0
 
-        # Peeling ratio: how much is passed forward
+        # Peeling ratio: forwarding ratio (indicates "peeling chain")
+        # High ratio (0.8+) = most value passed through (peeling)
+        # Low ratio (0.2-) = significant value reduction
         incoming_amounts = [
             d["amount"] for _, _, d in G.in_edges(u, data=True)
         ]

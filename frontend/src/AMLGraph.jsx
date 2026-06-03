@@ -7,174 +7,234 @@ export default function AMLGraph() {
 
   const svgRef = useRef(null);
   const [walletTable, setWalletTable] = useState([]);
+  const [error, setError] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
 
+    setIsLoading(true);
+    setError(null);
+
     Promise.all([
-      fetch(`${BASE_URL}/graph/`).then(r => r.json()),
-      fetch(`${BASE_URL}/final-risk/`).then(r => r.json()),
-      fetch(`${BASE_URL}/risk-scores/`).then(r => r.json())
+      fetch(`${BASE_URL}/graph/`).then(r => {
+        if (!r.ok) throw new Error("Failed to fetch graph data");
+        return r.json();
+      }),
+      fetch(`${BASE_URL}/final-risk/`).then(r => {
+        if (!r.ok) throw new Error("Failed to fetch risk scores");
+        return r.json();
+      }),
+      fetch(`${BASE_URL}/risk-scores/`).then(r => {
+        if (!r.ok) throw new Error("Failed to fetch detailed scores");
+        return r.json();
+      })
     ])
       .then(([graph, finalRisk, riskScores]) => {
 
-        setWalletTable(riskScores.wallets || []);
+        // Validate data
+        if (!graph || !graph.nodes || !graph.edges) {
+          throw new Error("Invalid graph data received");
+        }
+        if (!finalRisk || !finalRisk.wallets) {
+          throw new Error("Invalid risk data received");
+        }
 
+        setWalletTable(riskScores.wallets || []);
         renderGraph(graph, finalRisk, riskScores);
+        setIsLoading(false);
 
       })
-      .catch(err => console.error(err));
+      .catch(err => {
+        console.error("Graph rendering error:", err);
+        setError(err.message || "Failed to load graph data");
+        setIsLoading(false);
+      });
 
   }, []);
 
   const renderGraph = (graph, finalRisk, riskScores) => {
 
-    const width = window.innerWidth - 420;
-    const height = window.innerHeight;
+    try {
+      const width = window.innerWidth - 420;
+      const height = window.innerHeight;
 
-    const riskMap = {};
-    (finalRisk?.wallets || []).forEach(w => {
-      riskMap[w.id] = w;
-    });
+      const riskMap = {};
+      (finalRisk?.wallets || []).forEach(w => {
+        riskMap[w.id] = w;
+      });
 
-    const riskScoresMap = {};
-    (riskScores?.wallets || []).forEach(w => {
-      riskScoresMap[w.id] = w;
-    });
+      const riskScoresMap = {};
+      (riskScores?.wallets || []).forEach(w => {
+        riskScoresMap[w.id] = w;
+      });
 
-    const svg = d3
-      .select(svgRef.current)
-      .attr("width", width)
-      .attr("height", height)
-      .style("background", "#f8fafc");
+      const svg = d3
+        .select(svgRef.current)
+        .attr("width", width)
+        .attr("height", height)
+        .style("background", "#f8fafc");
 
-    svg.selectAll("*").remove();
+      svg.selectAll("*").remove();
 
-    const container = svg.append("g");
+      const container = svg.append("g");
 
-    svg.call(
-      d3.zoom()
-        .scaleExtent([0.3, 4])
-        .on("zoom", e => container.attr("transform", e.transform))
-    );
-
-    const defs = svg.append("defs");
-
-    defs.append("marker")
-      .attr("id", "arrow")
-      .attr("viewBox", "0 -5 10 10")
-      .attr("refX", 22)
-      .attr("refY", 0)
-      .attr("markerWidth", 5)
-      .attr("markerHeight", 5)
-      .attr("orient", "auto")
-      .append("path")
-      .attr("d", "M0,-5L10,0L0,5")
-      .attr("fill", "#64748b");
-
-    const degree = {};
-
-    graph.edges.forEach(e => {
-      degree[e.source] = (degree[e.source] || 0) + 1;
-      degree[e.target] = (degree[e.target] || 0) + 1;
-    });
-
-    const extent = d3.extent(Object.values(degree));
-
-    const radius = d3.scaleLinear()
-      .domain(extent[0] === extent[1] ? [0, extent[1] || 1] : extent)
-      .range([8, 26]);
-
-    const sim = d3.forceSimulation(graph.nodes)
-      .force("link", d3.forceLink(graph.edges).id(d => d.id).distance(140))
-      .force("charge", d3.forceManyBody().strength(-420))
-      .force("center", d3.forceCenter(width / 2, height / 2));
-
-    const tooltip = d3.select("body")
-      .append("div")
-      .style("position", "absolute")
-      .style("background", "#ffffff")
-      .style("border", "1px solid #ddd")
-      .style("padding", "10px")
-      .style("border-radius", "8px")
-      .style("font-size", "13px")
-      .style("pointer-events", "none")
-      .style("opacity", 0);
-
-    const link = container.append("g")
-      .selectAll("line")
-      .data(graph.edges)
-      .enter()
-      .append("line")
-      .attr("stroke", "#64748b")
-      .attr("stroke-width", 1.2)
-      .attr("marker-end", "url(#arrow)");
-
-    const node = container.append("g")
-      .selectAll("circle")
-      .data(graph.nodes)
-      .enter()
-      .append("circle")
-      .attr("r", d => radius(degree[d.id] || 1))
-      .attr("fill", d => {
-
-        const r =
-          riskMap[d.id]?.final_risk ??
-          riskScoresMap[d.id]?.base_risk ??
-          0;
-
-        if (r >= 0.85) return "#dc2626";
-        if (r >= 0.6) return "#f97316";
-        if (r >= 0.3) return "#22c55e";
-
-        return "#2563eb";
-
-      })
-      .on("click", (e, d) => {
-
-        e.stopPropagation();
-
-        const info = riskMap[d.id];
-        const base = riskScoresMap[d.id]?.base_risk ?? 0;
-
-        const finalRiskValue = info?.final_risk ?? base ?? 0;
-
-        tooltip
-          .style("opacity", 1)
-          .style("left", e.pageX + 10 + "px")
-          .style("top", e.pageY + 10 + "px")
-          .html(`
-            <div><strong>${d.id}</strong></div>
-            <div>Final Risk: ${(finalRiskValue * 100).toFixed(1)}%</div>
-            <div>Base Risk: ${(base * 100).toFixed(1)}%</div>
-          `);
-
-      })
-      .call(
-        d3.drag()
-          .on("start", e => !e.active && sim.alphaTarget(0.3).restart())
-          .on("drag", (e, d) => { d.fx = e.x; d.fy = e.y; })
-          .on("end", e => !e.active && sim.alphaTarget(0))
+      svg.call(
+        d3.zoom()
+          .scaleExtent([0.3, 4])
+          .on("zoom", e => container.attr("transform", e.transform))
       );
 
-    d3.select("body").on("click", () => {
-      tooltip.style("opacity", 0);
-    });
+      const defs = svg.append("defs");
 
-    sim.on("tick", () => {
+      defs.append("marker")
+        .attr("id", "arrow")
+        .attr("viewBox", "0 -5 10 10")
+        .attr("refX", 22)
+        .attr("refY", 0)
+        .attr("markerWidth", 5)
+        .attr("markerHeight", 5)
+        .attr("orient", "auto")
+        .append("path")
+        .attr("d", "M0,-5L10,0L0,5")
+        .attr("fill", "#64748b");
 
-      link
-        .attr("x1", d => d.source.x)
-        .attr("y1", d => d.source.y)
-        .attr("x2", d => d.target.x)
-        .attr("y2", d => d.target.y);
+      const degree = {};
 
-      node
-        .attr("cx", d => d.x)
-        .attr("cy", d => d.y);
+      graph.edges.forEach(e => {
+        degree[e.source] = (degree[e.source] || 0) + 1;
+        degree[e.target] = (degree[e.target] || 0) + 1;
+      });
 
-    });
+      const extent = d3.extent(Object.values(degree));
 
+      const radius = d3.scaleLinear()
+        .domain(extent[0] === extent[1] ? [0, extent[1] || 1] : extent)
+        .range([8, 26]);
+
+      const sim = d3.forceSimulation(graph.nodes)
+        .force("link", d3.forceLink(graph.edges).id(d => d.id).distance(140))
+        .force("charge", d3.forceManyBody().strength(-420))
+        .force("center", d3.forceCenter(width / 2, height / 2));
+
+      const tooltip = d3.select("body")
+        .append("div")
+        .style("position", "absolute")
+        .style("background", "#ffffff")
+        .style("border", "1px solid #ddd")
+        .style("padding", "10px")
+        .style("border-radius", "8px")
+        .style("font-size", "13px")
+        .style("pointer-events", "none")
+        .style("opacity", 0);
+
+      const link = container.append("g")
+        .selectAll("line")
+        .data(graph.edges)
+        .enter()
+        .append("line")
+        .attr("stroke", "#64748b")
+        .attr("stroke-width", 1.2)
+        .attr("marker-end", "url(#arrow)");
+
+      const node = container.append("g")
+        .selectAll("circle")
+        .data(graph.nodes)
+        .enter()
+        .append("circle")
+        .attr("r", d => radius(degree[d.id] || 1))
+        .attr("fill", d => {
+
+          const r =
+            riskMap[d.id]?.final_risk ??
+            riskScoresMap[d.id]?.base_risk ??
+            0;
+
+          if (r >= 0.85) return "#dc2626";
+          if (r >= 0.6) return "#f97316";
+          if (r >= 0.3) return "#22c55e";
+
+          return "#2563eb";
+
+        })
+        .on("click", (e, d) => {
+
+          e.stopPropagation();
+
+          const info = riskMap[d.id];
+          const base = riskScoresMap[d.id]?.base_risk ?? 0;
+
+          const finalRiskValue = info?.final_risk ?? base ?? 0;
+
+          tooltip
+            .style("opacity", 1)
+            .style("left", e.pageX + 10 + "px")
+            .style("top", e.pageY + 10 + "px")
+            .html(`
+              <div><strong>${d.id}</strong></div>
+              <div>Final Risk: ${(finalRiskValue * 100).toFixed(1)}%</div>
+              <div>Base Risk: ${(base * 100).toFixed(1)}%</div>
+            `);
+
+        })
+        .call(
+          d3.drag()
+            .on("start", e => !e.active && sim.alphaTarget(0.3).restart())
+            .on("drag", (e, d) => { d.fx = e.x; d.fy = e.y; })
+            .on("end", e => !e.active && sim.alphaTarget(0))
+        );
+
+      d3.select("body").on("click", () => {
+        tooltip.style("opacity", 0);
+      });
+
+      sim.on("tick", () => {
+
+        link
+          .attr("x1", d => d.source.x)
+          .attr("y1", d => d.source.y)
+          .attr("x2", d => d.target.x)
+          .attr("y2", d => d.target.y);
+
+        node
+          .attr("cx", d => d.x)
+          .attr("cy", d => d.y);
+
+      });
+
+    } catch (err) {
+      console.error("Error rendering graph:", err);
+      setError("Failed to render graph visualization");
+    }
   };
+
+  if (isLoading) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-white">
+        <div className="text-center">
+          <div className="inline-block w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+          <p className="mt-4 text-gray-600">Loading graph...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-white">
+        <div className="text-center max-w-md">
+          <div className="text-3xl mb-4">⚠️</div>
+          <h2 className="text-xl font-semibold text-gray-900 mb-2">Error</h2>
+          <p className="text-gray-600 mb-6">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
 
@@ -213,9 +273,9 @@ export default function AMLGraph() {
                 const risk = (w.base_risk*100).toFixed(1)
 
                 return (
-                  <tr key={i} className="border-b">
+                  <tr key={i} className="border-b hover:bg-gray-100 transition">
 
-                    <td className="py-2 font-mono text-xs">
+                    <td className="py-2 font-mono text-xs truncate">
                       {w.id}
                     </td>
 
